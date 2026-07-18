@@ -1,0 +1,1214 @@
+// Leen Life Operations Platform — main application database schema.
+// PostgreSQL. Supabase is used for authentication only; this schema is
+// the single source of truth for all operational data.
+//
+// Conventions:
+// - UUID primary keys
+// - Soft delete via deletedAt on protected records (never hard-delete)
+// - All money amounts are integer IQD
+// - Historical financial rows snapshot the terms in force at the time;
+//   they are never recalculated from later agreement changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Core organization
+// ─────────────────────────────────────────────────────────────
+
+enum EntityStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Branch {
+  id        String       @id @default(uuid())
+  name      String
+  city      String
+  address   String?
+  status    EntityStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+
+  departments Department[]
+  users       User[]
+
+  @@map("branches")
+}
+
+enum DepartmentType {
+  SONAR
+  MRI
+  CT
+  XRAY
+  MAMMOGRAPHY
+  DEXA
+  RECEPTION
+  ADMINISTRATION
+  ACCOUNTING
+}
+
+model Department {
+  id        String         @id @default(uuid())
+  branchId  String
+  branch    Branch         @relation(fields: [branchId], references: [id])
+  name      String
+  type      DepartmentType
+  subdomain String?
+  status    EntityStatus   @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  deletedAt DateTime?
+
+  users            User[]
+  tests            Test[]
+  queueEntries     QueueEntry[]
+  scanOperations   ScanOperation[]
+  inventoryLevels  DepartmentInventory[]
+  inventoryMoves   InventoryMovement[]
+  reports          Report[]
+  reportAssignment ReportAssignment[]
+
+  @@unique([branchId, type])
+  @@index([branchId, status])
+  @@map("departments")
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  key         String  @unique // e.g. PLATFORM_ADMIN, BRANCH_ADMIN, ...
+  name        String
+  description String?
+
+  rolePermissions RolePermission[]
+  users           User[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  key         String  @unique // e.g. invoices.create
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Users, devices, login logs
+// ─────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+model User {
+  id             String     @id @default(uuid())
+  supabaseUserId String?    @unique
+  fullName       String
+  email          String     @unique
+  phone          String?
+  roleId         String
+  role           Role       @relation(fields: [roleId], references: [id])
+  branchId       String
+  branch         Branch     @relation(fields: [branchId], references: [id])
+  departmentId   String?
+  department     Department? @relation(fields: [departmentId], references: [id])
+  status         UserStatus @default(PENDING)
+  mfaRequired    Boolean    @default(false)
+  telegramChatId String?
+  language       String     @default("en") // en | ar | ku
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+
+  devices             UserDevice[]
+  loginLogs           LoginLog[]
+  employeeApplication EmployeeApplication?
+  positions           EmployeePosition[]   @relation("EmployeePositions")
+  agreements          EmployeeAgreement[]
+  attendanceRecords   AttendanceRecord[]
+  reportAssignments   ReportAssignment[]   @relation("AssignedDoctor")
+  reports             Report[]             @relation("ReportDoctor")
+  reportDoctorProfile ReportDoctorProfile?
+  notifications       Notification[]
+
+  @@index([branchId, roleId, status])
+  @@map("users")
+}
+
+model UserDevice {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  deviceFingerprint String?
+  userAgent         String?
+  ipAddress         String?
+  locationLat       Float?
+  locationLng       Float?
+  firstSeenAt       DateTime @default(now())
+  lastSeenAt        DateTime @default(now())
+  trusted           Boolean  @default(false)
+
+  @@index([userId])
+  @@map("user_devices")
+}
+
+enum LoginStatus {
+  SUCCESS
+  FAILED
+  BLOCKED
+  SUSPICIOUS
+}
+
+model LoginLog {
+  id        String      @id @default(uuid())
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id])
+  email     String?
+  ipAddress String?
+  userAgent String?
+  location  String?
+  status    LoginStatus
+  reason    String?
+  createdAt DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@map("login_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Employee portal
+// ─────────────────────────────────────────────────────────────
+
+enum ApplicationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model EmployeeApplication {
+  id                String            @id @default(uuid())
+  userId            String            @unique
+  user              User              @relation(fields: [userId], references: [id])
+  fullName          String
+  email             String
+  phone             String
+  dob               DateTime
+  address           String
+  idCardFrontFileId String?
+  idCardBackFileId  String?
+  signupIp          String?
+  signupDevice      String?
+  signupLocation    String?
+  status            ApplicationStatus @default(SUBMITTED)
+  reviewedById      String?
+  reviewedAt        DateTime?
+  rejectionReason   String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([status])
+  @@map("employee_applications")
+}
+
+enum PositionStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  ACTIVE
+  ENDED
+}
+
+model EmployeePosition {
+  id             String         @id @default(uuid())
+  employeeUserId String
+  employee       User           @relation("EmployeePositions", fields: [employeeUserId], references: [id])
+  branchId       String
+  departmentId   String?
+  jobTitle       String
+  salary         Int? // IQD / month
+  workStartTime  String? // "08:00"
+  workEndTime    String? // "16:00"
+  workDays       String? // e.g. "SUN,MON,TUE,WED,THU"
+  assignedById   String
+  status         PositionStatus @default(OFFERED)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  agreements EmployeeAgreement[]
+
+  @@index([employeeUserId, status])
+  @@map("employee_positions")
+}
+
+model WorkPolicy {
+  id        String   @id @default(uuid())
+  branchId  String
+  title     String
+  language  String // en | ar | ku
+  content   String
+  version   Int
+  active    Boolean  @default(true)
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@unique([branchId, title, language, version])
+  @@map("work_policies")
+}
+
+model EmployeeAgreement {
+  id                String           @id @default(uuid())
+  employeeUserId    String
+  employee          User             @relation(fields: [employeeUserId], references: [id])
+  positionId        String
+  position          EmployeePosition @relation(fields: [positionId], references: [id])
+  policyVersion     Int
+  // Immutable snapshot of the exact terms shown to and accepted by the
+  // employee. The contract PDF is generated from this snapshot only.
+  termsSnapshot     String
+  agreedAt          DateTime
+  ipAddress         String?
+  deviceInfo        String?
+  location          String?
+  contractPdfFileId String?
+  createdAt         DateTime         @default(now())
+
+  @@index([employeeUserId])
+  @@map("employee_agreements")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  EARLY_LEAVE
+  ABSENT
+  PENDING_REVIEW
+  REJECTED_OUT_OF_GEOFENCE
+}
+
+model AttendanceRecord {
+  id               String           @id @default(uuid())
+  employeeUserId   String
+  employee         User             @relation(fields: [employeeUserId], references: [id])
+  workDate         DateTime         @db.Date
+  checkInAt        DateTime?
+  checkOutAt       DateTime?
+  checkInLat       Float?
+  checkInLng       Float?
+  checkOutLat      Float?
+  checkOutLng      Float?
+  checkInIp        String?
+  checkOutIp       String?
+  checkInDevice    String?
+  checkOutDevice   String?
+  status           AttendanceStatus @default(PRESENT)
+  lateMinutes      Int              @default(0)
+  earlyLeaveMinutes Int             @default(0)
+  overtimeMinutes  Int              @default(0)
+  adminAdjusted    Boolean          @default(false)
+  adjustedById     String?
+  adjustmentReason String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([employeeUserId, workDate])
+  @@index([workDate])
+  @@map("attendance_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Patients, invoices, payments
+// ─────────────────────────────────────────────────────────────
+
+model Patient {
+  id          String    @id @default(uuid())
+  patientCode String    @unique // human-friendly, e.g. LL-000123
+  fullName    String
+  yearOfBirth Int?
+  phone       String?
+  address     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  invoices     Invoice[]
+  queueEntries QueueEntry[]
+  reports      Report[]
+
+  @@index([fullName])
+  @@index([phone])
+  @@map("patients")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING_DISCOUNT
+  FINALIZED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+model Invoice {
+  id                String        @id @default(uuid())
+  invoiceNumber     String        @unique // e.g. INV-20260718-0001
+  patientId         String
+  patient           Patient       @relation(fields: [patientId], references: [id])
+  branchId          String
+  referralPartnerId String?
+  referralPartner   ReferralPartner? @relation(fields: [referralPartnerId], references: [id])
+  subtotal          Int           @default(0)
+  discountTotal     Int           @default(0)
+  netTotal          Int           @default(0)
+  paymentStatus     PaymentStatus @default(UNPAID)
+  status            InvoiceStatus @default(DRAFT)
+  createdById       String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+
+  items                InvoiceItem[]
+  payments             Payment[]
+  discountRequests     DiscountRequest[]
+  discountUsages       DiscountUsage[]
+  referralTransactions ReferralTransaction[]
+
+  @@index([patientId, createdAt])
+  @@index([branchId, createdAt])
+  @@map("invoices")
+}
+
+enum InvoiceItemStatus {
+  PENDING
+  IN_QUEUE
+  IN_PROGRESS
+  SCAN_DONE
+  PRINTING_DONE
+  AWAITING_REPORT
+  REPORT_IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model InvoiceItem {
+  id              String            @id @default(uuid())
+  invoiceId       String
+  invoice         Invoice           @relation(fields: [invoiceId], references: [id])
+  testId          String
+  test            Test              @relation(fields: [testId], references: [id])
+  departmentId    String
+  quantity        Int               @default(1)
+  basePrice       Int // snapshot at time of sale
+  finalPrice      Int
+  timePriceRuleId String?
+  discountAmount  Int               @default(0)
+  requiresReport  Boolean
+  status          InvoiceItemStatus @default(PENDING)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  queueEntries      QueueEntry[]
+  scanOperations    ScanOperation[]
+  reportAssignments ReportAssignment[]
+  reports           Report[]
+  assetUsageRecords AssetUsageRecord[]
+
+  @@index([invoiceId])
+  @@index([departmentId, status])
+  @@map("invoice_items")
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  invoiceId      String
+  invoice        Invoice       @relation(fields: [invoiceId], references: [id])
+  amount         Int
+  method         PaymentMethod @default(CASH)
+  receivedById   String
+  paidAt         DateTime      @default(now())
+  idempotencyKey String?       @unique
+  notes          String?
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tests and pricing
+// ─────────────────────────────────────────────────────────────
+
+model Test {
+  id                    String     @id @default(uuid())
+  departmentId          String
+  department            Department @relation(fields: [departmentId], references: [id])
+  code                  String     @unique
+  nameEn                String
+  nameAr                String
+  nameKu                String
+  basePrice             Int
+  requiresReportDefault Boolean    @default(false)
+  discountAllowed       Boolean    @default(true)
+  referralAllowed       Boolean    @default(true)
+  estimatedMinutes      Int?
+  notes                 String?
+  active                Boolean    @default(true)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  deletedAt             DateTime?
+
+  timePriceRules TimePriceRule[]
+  invoiceItems   InvoiceItem[]
+  assetRecipes   TestAssetRecipe[]
+
+  @@index([departmentId, active])
+  @@map("tests")
+}
+
+model TimePriceRule {
+  id           String    @id @default(uuid())
+  testId       String
+  test         Test      @relation(fields: [testId], references: [id])
+  departmentId String
+  startTime    String // "08:00" inclusive
+  endTime      String // "14:00" exclusive
+  price        Int
+  activeFrom   DateTime?
+  activeTo     DateTime?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([testId])
+  @@map("time_price_rules")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Referral partners and deals
+// ─────────────────────────────────────────────────────────────
+
+enum ReferralPartnerType {
+  DOCTOR
+  CLINIC
+  HOSPITAL
+  OTHER
+}
+
+model ReferralPartner {
+  id        String              @id @default(uuid())
+  name      String
+  type      ReferralPartnerType @default(DOCTOR)
+  phone     String?
+  address   String?
+  status    EntityStatus        @default(ACTIVE)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  deletedAt DateTime?
+
+  deals        ReferralDeal[]
+  transactions ReferralTransaction[]
+  invoices     Invoice[]
+
+  @@map("referral_partners")
+}
+
+enum ReferralDealType {
+  FIXED_PER_PATIENT
+  PERCENTAGE
+  NO_COMMISSION
+  DISCOUNT_TO_PATIENT
+  CUSTOM
+}
+
+model ReferralDeal {
+  id                String           @id @default(uuid())
+  referralPartnerId String
+  partner           ReferralPartner  @relation(fields: [referralPartnerId], references: [id])
+  dealType          ReferralDealType
+  amount            Int? // fixed IQD per patient
+  percentage        Float? // 0..100
+  appliesAsDiscount Boolean          @default(false)
+  notes             String?
+  activeFrom        DateTime         @default(now())
+  activeTo          DateTime?
+  status            EntityStatus     @default(ACTIVE)
+  createdById       String
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  transactions ReferralTransaction[]
+
+  @@index([referralPartnerId, status])
+  @@map("referral_deals")
+}
+
+enum ReferralTransactionStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+model ReferralTransaction {
+  id                String                    @id @default(uuid())
+  referralPartnerId String
+  partner           ReferralPartner           @relation(fields: [referralPartnerId], references: [id])
+  dealId            String
+  deal              ReferralDeal              @relation(fields: [dealId], references: [id])
+  patientId         String
+  invoiceId         String
+  invoice           Invoice                   @relation(fields: [invoiceId], references: [id])
+  amount            Int // snapshot of computed commission at sale time
+  appliedAsDiscount Boolean                   @default(false)
+  payableToPartner  Boolean                   @default(true)
+  status            ReferralTransactionStatus @default(PENDING)
+  cashoutBatchId    String?
+  createdAt         DateTime                  @default(now())
+
+  @@index([referralPartnerId, status])
+  @@map("referral_transactions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Discounts
+// ─────────────────────────────────────────────────────────────
+
+enum DiscountRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model DiscountRequest {
+  id                  String                @id @default(uuid())
+  invoiceId           String
+  invoice             Invoice               @relation(fields: [invoiceId], references: [id])
+  requestedById       String
+  reason              String
+  requestedAmount     Int?
+  requestedPercentage Float?
+  status              DiscountRequestStatus @default(PENDING)
+  approvedById        String?
+  approvedAt          DateTime?
+  approvedAmount      Int?
+  rejectionReason     String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([status, createdAt])
+  @@map("discount_requests")
+}
+
+enum DiscountCodeType {
+  FIXED
+  PERCENTAGE
+}
+
+model DiscountCode {
+  id           String           @id @default(uuid())
+  code         String           @unique
+  type         DiscountCodeType
+  value        Int // IQD if FIXED, percent (0..100) if PERCENTAGE
+  startDate    DateTime
+  endDate      DateTime
+  usageLimit   Int?
+  usedCount    Int              @default(0)
+  departmentId String?
+  testId       String?
+  active       Boolean          @default(true)
+  createdById  String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  usages DiscountUsage[]
+
+  @@map("discount_codes")
+}
+
+model DiscountUsage {
+  id             String       @id @default(uuid())
+  discountCodeId String
+  discountCode   DiscountCode @relation(fields: [discountCodeId], references: [id])
+  invoiceId      String
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id])
+  usedById       String
+  amount         Int
+  usedAt         DateTime     @default(now())
+
+  @@index([discountCodeId])
+  @@map("discount_usages")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Queues and scan operations
+// ─────────────────────────────────────────────────────────────
+
+enum QueueStatus {
+  WAITING
+  IN_PROGRESS
+  DONE
+  CANCELLED
+  NO_SHOW
+}
+
+model QueueEntry {
+  id            String      @id @default(uuid())
+  branchId      String
+  departmentId  String
+  department    Department  @relation(fields: [departmentId], references: [id])
+  invoiceItemId String
+  invoiceItem   InvoiceItem @relation(fields: [invoiceItemId], references: [id])
+  patientId     String
+  patient       Patient     @relation(fields: [patientId], references: [id])
+  queueDate     DateTime    @db.Date
+  position      Int
+  priority      Int         @default(0)
+  status        QueueStatus @default(WAITING)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  changeLogs QueueChangeLog[]
+
+  @@index([departmentId, queueDate, status])
+  @@map("department_queues")
+}
+
+model QueueChangeLog {
+  id          String     @id @default(uuid())
+  queueId     String
+  queue       QueueEntry @relation(fields: [queueId], references: [id])
+  oldPosition Int
+  newPosition Int
+  changedById String
+  reason      String
+  createdAt   DateTime   @default(now())
+
+  @@index([queueId])
+  @@map("queue_change_logs")
+}
+
+enum ScanStatus {
+  STARTED
+  SCAN_DONE
+  PRINTING_DONE
+  COMPLETED
+  CANCELLED
+}
+
+model ScanOperation {
+  id             String      @id @default(uuid())
+  invoiceItemId  String
+  invoiceItem    InvoiceItem @relation(fields: [invoiceItemId], references: [id])
+  departmentId   String
+  department     Department  @relation(fields: [departmentId], references: [id])
+  patientId      String
+  operatorUserId String
+  startedAt      DateTime    @default(now())
+  scanDoneAt     DateTime?
+  printingDoneAt DateTime?
+  status         ScanStatus  @default(STARTED)
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  files             StoredFile[]
+  assetUsageRecords AssetUsageRecord[]
+
+  @@index([departmentId, status])
+  @@map("scan_operations")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Files
+// ─────────────────────────────────────────────────────────────
+
+enum FileType {
+  SCAN_ZIP
+  ID_CARD
+  CONTRACT_PDF
+  REPORT_PDF
+  RECEIPT_PDF
+  OTHER
+}
+
+enum FileScanStatus {
+  PENDING
+  CLEAN
+  QUARANTINED
+  REJECTED
+}
+
+model StoredFile {
+  id                   String         @id @default(uuid())
+  ownerType            String // e.g. "scan_operation", "employee_application"
+  ownerId              String?
+  scanOperationId      String?
+  scanOperation        ScanOperation? @relation(fields: [scanOperationId], references: [id])
+  fileType             FileType
+  originalName         String
+  storagePath          String // randomized server-side key; never client-supplied
+  mimeType             String
+  sizeBytes            BigInt
+  uploadedById         String
+  scanStatus           FileScanStatus @default(PENDING)
+  keepFile             Boolean        @default(false)
+  autoDeleteAfter      DateTime?
+  deletedFromStorageAt DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?
+
+  accessLogs FileAccessLog[]
+
+  @@index([autoDeleteAfter, keepFile, deletedFromStorageAt])
+  @@index([ownerType, ownerId])
+  @@map("files")
+}
+
+enum FileAction {
+  UPLOAD
+  DOWNLOAD
+  DELETE
+  KEEP_FLAG_SET
+  KEEP_FLAG_UNSET
+  SIGNED_LINK_ISSUED
+}
+
+model FileAccessLog {
+  id         String     @id @default(uuid())
+  fileId     String
+  file       StoredFile @relation(fields: [fileId], references: [id])
+  userId     String
+  action     FileAction
+  ipAddress  String?
+  deviceInfo String?
+  createdAt  DateTime   @default(now())
+
+  @@index([fileId, createdAt])
+  @@map("file_access_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Reports
+// ─────────────────────────────────────────────────────────────
+
+model ReportDoctorProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  // Agreed default price per report; entered prices outside the band
+  // are flagged for accounting review.
+  agreedPrice    Int
+  priceTolerance Int      @default(0) // allowed deviation in IQD before flagging
+  specialty      String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("report_doctor_profiles")
+}
+
+enum ReportAssignmentStatus {
+  ASSIGNED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  REASSIGNED
+}
+
+model ReportAssignment {
+  id                 String                 @id @default(uuid())
+  invoiceItemId      String
+  invoiceItem        InvoiceItem            @relation(fields: [invoiceItemId], references: [id])
+  patientId          String
+  departmentId       String
+  department         Department             @relation(fields: [departmentId], references: [id])
+  reportDoctorUserId String
+  reportDoctor       User                   @relation("AssignedDoctor", fields: [reportDoctorUserId], references: [id])
+  assignedById       String
+  status             ReportAssignmentStatus @default(ASSIGNED)
+  assignedAt         DateTime               @default(now())
+  completedAt        DateTime?
+
+  reports Report[]
+
+  @@index([reportDoctorUserId, status])
+  @@map("report_assignments")
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  PRINTED
+  AMENDED
+}
+
+enum PriceReviewStatus {
+  WITHIN_DEAL
+  FLAGGED
+  APPROVED
+  ADJUSTED
+}
+
+model Report {
+  id                  String            @id @default(uuid())
+  reportAssignmentId  String?
+  reportAssignment    ReportAssignment? @relation(fields: [reportAssignmentId], references: [id])
+  invoiceItemId       String
+  invoiceItem         InvoiceItem       @relation(fields: [invoiceItemId], references: [id])
+  patientId           String
+  patient             Patient           @relation(fields: [patientId], references: [id])
+  departmentId        String
+  department          Department        @relation(fields: [departmentId], references: [id])
+  reportDoctorUserId  String
+  reportDoctor        User              @relation("ReportDoctor", fields: [reportDoctorUserId], references: [id])
+  reportText          String            @default("")
+  reportPriceEntered  Int?
+  reportPriceApproved Int?
+  priceReviewStatus   PriceReviewStatus @default(WITHIN_DEAL)
+  priceReviewedById   String?
+  status              ReportStatus      @default(DRAFT)
+  submittedAt         DateTime?
+  printedAt           DateTime?
+  qrVerificationToken String            @unique @default(uuid())
+  cashoutBatchId      String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  priceReviews ReportPriceReview[]
+
+  @@index([reportDoctorUserId, status])
+  @@map("reports")
+}
+
+model ReportPriceReview {
+  id           String   @id @default(uuid())
+  reportId     String
+  report       Report   @relation(fields: [reportId], references: [id])
+  oldPrice     Int?
+  newPrice     Int
+  reviewedById String
+  reason       String
+  createdAt    DateTime @default(now())
+
+  @@index([reportId])
+  @@map("report_price_reviews")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Inventory
+// ─────────────────────────────────────────────────────────────
+
+model InventoryItem {
+  id          String   @id @default(uuid())
+  nameEn      String
+  nameAr      String
+  nameKu      String
+  unit        String // e.g. "sheet", "film", "dvd"
+  costPerUnit Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  departmentLevels DepartmentInventory[]
+  movements        InventoryMovement[]
+  recipes          TestAssetRecipe[]
+  usageRecords     AssetUsageRecord[]
+
+  @@map("inventory_items")
+}
+
+model DepartmentInventory {
+  id                String        @id @default(uuid())
+  branchId          String
+  departmentId      String
+  department        Department    @relation(fields: [departmentId], references: [id])
+  inventoryItemId   String
+  item              InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  currentQuantity   Int           @default(0)
+  lowStockThreshold Int           @default(0)
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([departmentId, inventoryItemId])
+  @@map("department_inventory")
+}
+
+enum InventoryMovementType {
+  RECEIVED
+  TRANSFERRED
+  USED_FOR_TEST
+  WASTE
+  CORRECTION
+  RETURN
+  DAMAGED
+  EXPIRED
+}
+
+model InventoryMovement {
+  id                   String                @id @default(uuid())
+  branchId             String
+  departmentId         String
+  department           Department            @relation(fields: [departmentId], references: [id])
+  inventoryItemId      String
+  item                 InventoryItem         @relation(fields: [inventoryItemId], references: [id])
+  movementType         InventoryMovementType
+  quantity             Int // positive; direction derives from movementType
+  unitCost             Int
+  totalCost            Int
+  relatedScanOperationId String?
+  relatedInvoiceItemId String?
+  createdById          String
+  notes                String?
+  createdAt            DateTime              @default(now())
+
+  @@index([departmentId, createdAt])
+  @@index([inventoryItemId])
+  @@map("inventory_movements")
+}
+
+model TestAssetRecipe {
+  id               String        @id @default(uuid())
+  testId           String
+  test             Test          @relation(fields: [testId], references: [id])
+  inventoryItemId  String
+  item             InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  expectedQuantity Int
+  required         Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([testId, inventoryItemId])
+  @@map("test_asset_recipes")
+}
+
+enum AssetUsageStatus {
+  DEPARTMENT_ENTERED
+  RECEPTION_VERIFIED
+  ADMIN_REVIEWED
+  ADJUSTED
+}
+
+model AssetUsageRecord {
+  id                        String           @id @default(uuid())
+  scanOperationId           String
+  scanOperation             ScanOperation    @relation(fields: [scanOperationId], references: [id])
+  invoiceItemId             String
+  invoiceItem               InvoiceItem      @relation(fields: [invoiceItemId], references: [id])
+  departmentId              String
+  inventoryItemId           String
+  item                      InventoryItem    @relation(fields: [inventoryItemId], references: [id])
+  expectedQuantity          Int              @default(0)
+  departmentEnteredQuantity Int              @default(0)
+  receptionVerifiedQuantity Int?
+  wasteQuantity             Int              @default(0)
+  finalQuantity             Int?
+  enteredById               String
+  verifiedById              String?
+  reviewedById              String?
+  status                    AssetUsageStatus @default(DEPARTMENT_ENTERED)
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+
+  @@index([departmentId, status])
+  @@map("asset_usage_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Accounting
+// ─────────────────────────────────────────────────────────────
+
+enum CashoutPayeeType {
+  REFERRAL_PARTNER
+  REPORT_DOCTOR
+}
+
+enum CashoutStatus {
+  DRAFT
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+model CashoutBatch {
+  id           String           @id @default(uuid())
+  payeeType    CashoutPayeeType
+  payeeId      String // referralPartnerId or report doctor userId
+  amount       Int
+  periodStart  DateTime
+  periodEnd    DateTime
+  status       CashoutStatus    @default(DRAFT)
+  createdById  String
+  approvedById String?
+  paidAt       DateTime?
+  notes        String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([payeeType, payeeId, status])
+  @@map("cashout_batches")
+}
+
+enum SalaryStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+model SalaryRecord {
+  id              String       @id @default(uuid())
+  employeeUserId  String
+  periodStart     DateTime
+  periodEnd       DateTime
+  baseSalary      Int
+  deductionAmount Int          @default(0)
+  overtimeAmount  Int          @default(0)
+  netSalary       Int
+  status          SalaryStatus @default(DRAFT)
+  createdById     String
+  approvedById    String?
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([employeeUserId, periodStart, periodEnd])
+  @@map("salary_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Audit, notifications, security
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?
+  roleKey      String?
+  branchId     String?
+  departmentId String?
+  action       String // e.g. invoice.create, discount.approve
+  module       String
+  objectType   String?
+  objectId     String?
+  oldValues    Json?
+  newValues    Json?
+  ipAddress    String?
+  deviceInfo   String?
+  location     String?
+  success      Boolean  @default(true)
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  // Append-only: no update/delete API is exposed; enforced additionally
+  // by a database trigger created in migration SQL.
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([objectType, objectId])
+  @@map("audit_logs")
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  TELEGRAM
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+model Notification {
+  id        String              @id @default(uuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id])
+  channel   NotificationChannel
+  titleKey  String // i18n key
+  bodyKey   String
+  params    Json?
+  status    NotificationStatus  @default(PENDING)
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, status])
+  @@map("notifications")
+}
+
+enum SecurityAlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SecurityAlertStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+model SecurityAlert {
+  id          String                @id @default(uuid())
+  type        String // e.g. suspicious_login, attendance_anomaly, waste_anomaly
+  severity    SecurityAlertSeverity @default(MEDIUM)
+  userId      String?
+  objectType  String?
+  objectId    String?
+  details     Json?
+  status      SecurityAlertStatus   @default(OPEN)
+  resolvedById String?
+  resolvedAt  DateTime?
+  createdAt   DateTime              @default(now())
+
+  @@index([status, severity, createdAt])
+  @@map("security_alerts")
+}
+
+// Counters for human-friendly sequential codes (patient codes, invoice
+// numbers) allocated transactionally to avoid duplicates.
+model SequenceCounter {
+  key   String @id // e.g. "patient_code", "invoice:20260718"
+  value Int    @default(0)
+
+  @@map("sequence_counters")
+}
