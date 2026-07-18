@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: leenlife
+          POSTGRES_PASSWORD: leenlife_ci
+          POSTGRES_DB: leenlife
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U leenlife"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://leenlife:leenlife_ci@localhost:5432/leenlife?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install
+
+      - name: Format check
+        run: pnpm format || true # advisory until repo-wide prettier pass is enforced
+
+      - name: Build packages
+        run: pnpm --filter @leen-life/shared-types --filter @leen-life/permissions --filter @leen-life/database build
+
+      - name: Migration validation (deploy against fresh database)
+        run: pnpm --filter @leen-life/database migrate:deploy
+
+      - name: Seed synthetic data
+        run: pnpm db:seed
+
+      - name: Typecheck
+        run: pnpm --filter @leen-life/api --filter @leen-life/worker typecheck
+
+      - name: Unit tests
+        run: pnpm --filter @leen-life/api --filter @leen-life/shared-types test
+
+      - name: Build apps
+        run: pnpm --filter @leen-life/api --filter @leen-life/worker --filter @leen-life/web build
+
+      - name: API smoke test (boot + health + auth + isolation)
+        run: |
+          cd apps/api
+          AUTH_DEV_MODE=true AUTH_DEV_JWT_SECRET=ci-secret API_PORT=3001 node dist/main.js &
+          for i in $(seq 1 20); do curl -sf http://localhost:3001/health && break || sleep 1; done
+          TOKEN=$(curl -sf -X POST http://localhost:3001/api/v1/auth/dev-login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"mri@leenlife.test","devPassword":"leenlife-dev"}' \
+            | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+          # RBAC denial must hold in CI too
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/v1/admin/users -H "Authorization: Bearer $TOKEN")
+          test "$STATUS" = "403"
+
+      - name: Dependency audit (high+)
+        run: pnpm audit --audit-level high || true # report-only until triaged
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

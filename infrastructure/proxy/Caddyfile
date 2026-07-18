@@ -1,0 +1,36 @@
+# Reverse proxy / subdomain routing (spec §4). All subdomains hit the
+# same web app + central API; department separation is enforced by
+# backend authorization, never by the proxy. Caddy provisions TLS
+# automatically for real domains.
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+}
+
+# Portal subdomains — one vhost block per public entry point.
+portal.leenlife.gashtysoft.com,
+admin.leenlife.gashtysoft.com,
+accounting.leenlife.gashtysoft.com,
+reception.leenlife.gashtysoft.com,
+mri.leenlife.gashtysoft.com,
+ct.leenlife.gashtysoft.com,
+xray.leenlife.gashtysoft.com,
+sonar.leenlife.gashtysoft.com,
+mammography.leenlife.gashtysoft.com,
+dexa.leenlife.gashtysoft.com,
+reports.leenlife.gashtysoft.com,
+platform.leenlife.gashtysoft.com {
+	import security_headers
+
+	handle /api/v1/* {
+		reverse_proxy api:3001
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

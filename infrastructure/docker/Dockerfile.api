@@ -1,0 +1,19 @@
+FROM node:22-alpine AS base
+RUN corepack enable
+WORKDIR /app
+
+FROM base AS build
+COPY pnpm-workspace.yaml package.json .npmrc* ./
+COPY packages ./packages
+COPY apps/api ./apps/api
+RUN pnpm install --frozen-lockfile=false
+RUN pnpm --filter @leen-life/shared-types --filter @leen-life/permissions --filter @leen-life/database build \
+  && pnpm --filter @leen-life/database generate \
+  && pnpm --filter @leen-life/api build
+
+FROM base AS runtime
+ENV NODE_ENV=production
+COPY --from=build /app ./
+USER node
+EXPOSE 3001
+CMD ["node", "apps/api/dist/main.js"]
