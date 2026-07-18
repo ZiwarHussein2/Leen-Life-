@@ -1,0 +1,158 @@
+/* Design tokens from DESIGN.md (getdesign vercel foundation), extended
+   with RTL-safe logical properties and the Noto Kufi Arabic face for
+   Arabic / Kurdish Sorani. */
+
+:root {
+  --primary: #171717;
+  --on-primary: #ffffff;
+  --ink: #171717;
+  --body: #4d4d4d;
+  --mute: #888888;
+  --hairline: #ebebeb;
+  --hairline-strong: #a1a1a1;
+  --canvas: #ffffff;
+  --canvas-soft: #fafafa;
+  --canvas-soft-2: #f5f5f5;
+  --link: #0070f3;
+  --link-deep: #0761d1;
+  --success: #0070f3;
+  --error: #ee0000;
+  --error-soft: #f7d4d6;
+  --warning: #f5a623;
+  --warning-soft: #ffefcf;
+  --violet: #7928ca;
+  --cyan-deep: #29bc9b;
+  --radius: 8px;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-arabic: var(--font-noto-kufi), var(--font-inter), sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--canvas-soft);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Arabic + Kurdish Sorani: Noto Kufi Arabic, RTL layout (spec §5). */
+html[lang="ar"] body,
+html[lang="ku"] body {
+  font-family: var(--font-arabic);
+  letter-spacing: 0;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { color: var(--link-deep); }
+
+h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.96px; line-height: 32px; }
+h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.5px; }
+html[lang="ar"] h1, html[lang="ku"] h1,
+html[lang="ar"] h2, html[lang="ku"] h2 { letter-spacing: 0; }
+
+.card {
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius);
+  padding: 7px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.15s ease;
+}
+.btn:hover { opacity: 0.85; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.secondary {
+  background: var(--canvas);
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+}
+.btn.danger { background: var(--error); border-color: var(--error); }
+
+.input, select.input, textarea.input {
+  width: 100%;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+
+label { display: block; font-size: 13px; color: var(--body); margin-block-end: 4px; font-weight: 500; }
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+table.data th {
+  text-align: start;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mute);
+  padding: 10px 12px;
+  border-block-end: 1px solid var(--hairline);
+  background: var(--canvas-soft);
+}
+html[lang="ar"] table.data th, html[lang="ku"] table.data th { letter-spacing: 0; }
+table.data td { padding: 10px 12px; border-block-end: 1px solid var(--hairline); }
+table.data tr:last-child td { border-block-end: none; }
+
+.badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 99px;
+  padding: 2px 10px;
+  background: var(--canvas-soft-2);
+  color: var(--body);
+  border: 1px solid var(--hairline);
+}
+.badge.ok { background: #e8f4ff; color: var(--link-deep); border-color: #d3e5ff; }
+.badge.warn { background: var(--warning-soft); color: #ab570a; border-color: #f5d9a8; }
+.badge.err { background: var(--error-soft); color: #c50000; border-color: #f0b4b8; }
+.badge.success { background: #e6fff6; color: var(--cyan-deep); border-color: #aaffec; }
+
+.grid { display: grid; gap: 16px; }
+.grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+.stat { font-size: 26px; font-weight: 600; letter-spacing: -1px; }
+html[lang="ar"] .stat, html[lang="ku"] .stat { letter-spacing: 0; }
+.stat-label { color: var(--mute); font-size: 12px; }
+
+.error-text { color: var(--error); font-size: 13px; }
+.muted { color: var(--mute); }
+
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spread { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+  .card { border: none; padding: 0; }
+}
