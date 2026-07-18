@@ -1,0 +1,44 @@
+{
+  "name": "@leen-life/api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "lint": "echo 'lint: prettier via root' "
+  },
+  "dependencies": {
+    "@leen-life/database": "workspace:*",
+    "@leen-life/permissions": "workspace:*",
+    "@leen-life/shared-types": "workspace:*",
+    "@nestjs/common": "^11.0.6",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.6",
+    "@nestjs/platform-express": "^11.0.6",
+    "@nestjs/swagger": "^11.0.3",
+    "@nestjs/throttler": "^6.4.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "jose": "^5.9.6",
+    "multer": "1.4.5-lts.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "yauzl": "^3.2.0"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.10.9",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.7",
+    "@types/supertest": "^6.0.2",
+    "@types/yauzl": "^2.10.3",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "unplugin-swc": "^1.5.1",
+    "vitest": "^3.0.5"
+  }
+}
