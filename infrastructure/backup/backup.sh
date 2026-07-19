@@ -5,7 +5,7 @@ set -euo pipefail
 
 OUT_DIR="${1:-./backups}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-PGURL="${DATABASE_URL:-postgresql://leenlife:leenlife_dev_password@localhost:5432/leenlife}"
+PGURL="${DATABASE_URL:-postgresql://leenlife:leenlife_dev_password@localhost:55432/leenlife}"
 STORAGE_DIR="${STORAGE_DIR:-./storage-data}"
 
 if [ -z "${BACKUP_PASSPHRASE:-}" ]; then

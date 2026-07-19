@@ -28,6 +28,11 @@ for i in $(seq 1 30); do
 done
 
 [ -f .env ] || { say "Creating .env from template"; cp .env.example .env; }
+# Migrate a .env created before the dev database moved to host port 55432.
+if grep -q "leenlife_dev_password@localhost:5432/" .env; then
+  say "Updating .env database port to 55432"
+  sed -i.bak 's|leenlife_dev_password@localhost:5432/|leenlife_dev_password@localhost:55432/|' .env && rm -f .env.bak
+fi
 set -a; . ./.env; set +a
 
 say "Building shared packages"
