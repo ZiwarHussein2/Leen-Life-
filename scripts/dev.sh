@@ -5,6 +5,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Corepack downloads pnpm on first use; skip its interactive prompt.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
 say() { printf "\n\033[1m▸ %s\033[0m\n" "$*"; }
 
 command -v docker >/dev/null || { echo "ERROR: Docker is required (start Docker Desktop)"; exit 1; }
