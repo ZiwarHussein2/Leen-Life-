@@ -38,6 +38,9 @@ set -a; . ./.env; set +a
 say "Building shared packages"
 pnpm --filter @leen-life/shared-types --filter @leen-life/permissions --filter @leen-life/database build
 
+say "Generating Prisma client"
+pnpm --filter @leen-life/database generate
+
 say "Applying database migrations"
 pnpm db:deploy
 
