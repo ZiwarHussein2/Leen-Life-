@@ -23,7 +23,7 @@ pnpm db:seed                       # deterministic synthetic data
 pnpm --filter @leen-life/api dev          # http://localhost:3001 (docs at /api/docs)
 
 # Web
-pnpm --filter @leen-life/web dev          # http://localhost:3000
+pnpm --filter @leen-life/web dev          # http://localhost:3500
 
 # Worker (scheduled) or one-shot jobs
 pnpm --filter @leen-life/worker dev

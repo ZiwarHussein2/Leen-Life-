@@ -31,6 +31,6 @@ platform.leenlife.gashtysoft.com {
 		reverse_proxy api:3001
 	}
 	handle {
-		reverse_proxy web:3000
+		reverse_proxy web:3500
 	}
 }

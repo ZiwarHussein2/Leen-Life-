@@ -45,7 +45,7 @@ pnpm db:seed
 
 # 5. Run everything
 pnpm dev
-# web:    http://localhost:3000
+# web:    http://localhost:3500
 # api:    http://localhost:3001  (OpenAPI docs at /api/docs)
 ```
 
